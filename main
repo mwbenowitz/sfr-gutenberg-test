@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+
+#
+# Import Process from Project Gutenberg for the SFR project
+# This has two modes:
+# 1) Run a full import from Gutenberg into the database
+# 2) Run an incremental import of records updated the previous day
+# The data is enriched with fields from metadata.librarysimplied.org
+#
+# by Mike Benowitz (michaelbenowitz@nypl.org)
+#
+
+from helpers.args import GutenbergArgs
+from helpers.config import GutenbergConfig
+from helpers.logs import GutenbergLogs
+
+from lib.gutenberg import GutenbergCore
+
+def main():
+
+    logger = GutenbergLogs()
+
+    arg_parser = GutenbergArgs()
+    args = arg_parser.parser.parse_args()
+
+    log_level = args.level.lower()
+    logger.setLevel(log_level)
+    logger.logger.debug("Set log level to %s" % args.level)
+
+    logger.logger.info("Starting Gutenberg ingest process")
+
+    gutenberg_core = GutenbergCore()
+
+    ingest_full = args.full
+    if ingest_full is True:
+        logger.logger.info("Running full Gutenberg ingest")
+        gutenberg_core.ingest_full_gutenberg()
+    else:
+        logger.logger.info("Running partial Gutenberg ingest")
+        gutenberg_core.ingest_gutenberg()
+
+if __name__ == "__main__":
+    main()
