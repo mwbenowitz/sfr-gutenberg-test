@@ -11,11 +11,12 @@ from readers.metadatawrangler import MetadataWranglerReader
 from readers.oclc import oclcReader
 
 class GutenbergBib:
-    def __init__(self, catalog_dir):
+
+    def __init__(self, catalogDir):
         self.logger = logging.getLogger('guten_logs')
 
         # This is where we read the RDF files from
-        self.epub_dir = catalog_dir + "/cache/epub/"
+        self.epubDir = catalogDir + "/cache/epub/"
 
         # These should get reset for next book
         self.currentBib = None
@@ -37,26 +38,25 @@ class GutenbergBib:
         self.gutenbergXML.metadata["entities"] = []
         self.gutenbergXML.metadata["subjects"] = []
 
-    def read_dir(self):
+    def readDir(self):
         self.logger.info("Parsing all Gutenberg books")
 
-        list(map(self.read_bib, os.listdir(self.epub_dir)))
-        #list(map(self.read_bib, ["19540"]))
+        list(map(self.readBib, os.listdir(self.epubDir)))
         self.dbConnector.closeAll()
 
 
-    def read_bib(self, book_id):
-        self.logger.debug("READING " + str(book_id))
+    def readBib(self, bookID):
+        self.logger.info("READING {}".format(bookID))
         # Load the ebook URLs and book metadata
-        status = self.load_bib(book_id)
+        status = self.loadBib(bookID)
 
         # If we failed to create the book warn and continue
         if status is False:
-            self.logger.warning("DID NOT PARSE BOOK " + book_id)
+            self.logger.warning("DID NOT PARSE BOOK {}".format(bookID))
             return False
 
         # Enhance the data we got from Gutenberg with data from MW
-        self.enhance_bib()
+        self.enhanceBib()
 
         # Store the book in the database
         res = self.dbConnector.insert_record(self.metadata, self.ebookURLs)
@@ -71,24 +71,25 @@ class GutenbergBib:
         return True
 
     # This provides the main processing for each work and loads metadata from it
-    def load_bib(self, book_id):
-        rdf_dir = self.epub_dir + book_id
-        if 'DELETE' in book_id:
+    def loadBib(self, bookID):
+        rdfDir = self.epubDir + bookID
+        if 'DELETE' in bookID:
+            # TODO Execute the delete request in the psql/es
             self.logger.warning("BOOK TO BE DELETED")
             return False
-        elif os.path.isdir(rdf_dir) is False or int(book_id) == 0:
+        elif os.path.isdir(rdfDir) is False or int(bookID) == 0:
             return False
 
-        self.currentBib = book_id
-        rdf_file = rdf_dir + "/" + os.listdir(rdf_dir)[0]
-
-        self.metadata, self.ebookURLs = self.gutenbergXML.load(rdf_file)
+        self.currentBib = bookID
+        rdfFile = "{}/{}".format(rdfDir, os.listdir(rdfDir)[0])
+        self.logger.info("Loading publication from {}".format(rdfFile))
+        self.metadata, self.ebookURLs = self.gutenbergXML.load(rdfFile)
         return True
 
 
     # Enhance records by querying MetadataWrangler and add any additional metadata
     # that we get back
-    def enhance_bib(self):
+    def enhanceBib(self):
 
         self.logger.info("Formatting Record")
 

@@ -9,8 +9,7 @@ class GutenbergCore:
     def __init__(self):
         self.logger = logging.getLogger("guten_logs")
         self.downloads = GutenbergDownloads()
-        self.bib_parser = GutenbergBib(self.downloads.catalog_dir)
-        self.data_storer = GutenbergDB()
+        self.bibParser = GutenbergBib(self.downloads.catalogDir)
 
     def ingest_gutenberg(self):
         self.logger.debug("Running normal ingest")
@@ -19,6 +18,7 @@ class GutenbergCore:
         self.logger.debug("Running full ingest")
 
         # Download full RDF catalog from Gutenberg if it is more than 24 hours old
-        self.downloads.get_rdf_records()
+        self.downloads.getRDFRecords()
 
-        self.bib_parser.read_dir()
+        # Read the current directory of Gutenberg records and store them
+        self.bibParser.readDir()

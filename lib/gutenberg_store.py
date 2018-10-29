@@ -11,7 +11,7 @@ from helpers.postgres import postgresManager
 
 class GutenbergDB(postgresManager):
 
-    epub_store = "files/epubs/"
+    epubStore = "files/epubs/"
 
     def __init__(self):
         super(GutenbergDB, self).__init__()
@@ -100,6 +100,8 @@ class GutenbergDB(postgresManager):
                 return True
         except TypeError:
             self.logger.debug("Lifespan dates include null value, skip")
+        except KeyError:
+            self.logger.debug("Record is missing birth/death dates")
         return False
 
     def _createWork(self, metadata, newIDs):
@@ -114,7 +116,7 @@ class GutenbergDB(postgresManager):
 
         workFields = ["uuid", "title", "rights_stmt", "language"]
         workValues = [
-            work_uuid.hex,
+            uuid.uuid4().hex,
             metadata["title"],
             metadata["rights"],
             metadata["language"]
@@ -191,9 +193,10 @@ class GutenbergDB(postgresManager):
         return itemIDs
 
     def _createItem(self, epub, itemStmt, instanceID):
+        self.logger.debug(epub)
         itemValues = [
             epub["url"],
-            self._retrieveEpub(url),
+            self._retrieveEpub(epub["url"]),
             "gutenberg",
             epub["updated"],
             epub["size"],
@@ -247,11 +250,11 @@ class GutenbergDB(postgresManager):
         entityRelFields = ["work_id", "entity_id", "role"]
         relStmt = self.generateInsert("entity_works", entityRelFields)
 
-        entityIDs = list(map(self._createEntity, entities, repeat(entityStmt), repeat(relStmt), repeat(workID)))
+        entityIDs = list(map(self._createEntity, entities, repeat(entityFields), repeat(entityStmt), repeat(relStmt), repeat(workID)))
 
         return entityIDs
 
-    def _createEntity(self, entity, entityStmt, relStmt, workID):
+    def _createEntity(self, entity, entityFields, entityStmt, relStmt, workID):
         # Test for existing entity, see method for algorithim rules
         entityID = self._matchEntity(entity)
         if entityID is None:
@@ -271,7 +274,7 @@ class GutenbergDB(postgresManager):
             ]
             entityID = self.insertRow(entityStmt, entityValues)
 
-            self._createEntityRel(workID, entityID, entity["role"])
+            self._createEntityRel(workID, entityID, entity["role"], relStmt)
         else:
             columns, values = self._generateUpdate(entity, "entities", entityID)
             if len(columns) > 0:
@@ -279,16 +282,16 @@ class GutenbergDB(postgresManager):
 
         return entityID
 
-    def _createEntityRel(self, workID, entityID, role):
+    def _createEntityRel(self, workID, entityID, role, relStmt):
         relValues = [
             workID,
             entityID,
-            entity["role"]
+            role
         ]
         entityRelID = self.checkForRow("entity_works", {
             "work_id": workID,
             "entity_id": entityID,
-            "role": entity["role"]
+            "role": role
         })
         if entityRelID is None:
             entityRelID = self.insertRow(relStmt, relValues)
@@ -318,14 +321,14 @@ class GutenbergDB(postgresManager):
     # 3) Store resulting directory in s3
     def _retrieveEpub(self, epub_url):
         epub = requests.get(epub_url)
-        tmp_file = None
-        epub_file = re.search(r'[0-9]+.epub.(?:|no)images', epub_url).group(0)
+        tmpFile = None
+        epubFile = re.search(r'[0-9]+.epub.(?:|no)images', epub_url).group(0)
         if epub.status_code == 200:
             self.logger.debug("Storing downloaded epub from " + epub_url)
-            tmp_file = epub_store + epub_file
-            opn_file = open(tmp_file, "wb")
-            opn_file.write(epub.content)
-            opn_file.close()
+            tmpFile = GutenbergDB.epubStore + epubFile
+            opnFile = open(tmpFile, "wb")
+            opnFile.write(epub.content)
+            opnFile.close()
         else:
-            self.logger.debug("Download Error! Status {}".format())
-        return tmp_file
+            self.logger.debug("Download Error! Status {}".format(epub.status_code))
+        return tmpFile

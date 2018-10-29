@@ -10,28 +10,28 @@ class GutenbergLogs:
         'critical': logging.CRITICAL
     }
 
-    log_file_path = "logs/gutenberg.log"
-    log_format = '%(asctime)s | %(name)s_%(levelname)s: %(message)s'
+    logPath = "logs/gutenberg.log"
+    logFormat = '%(asctime)s | %(name)s_%(levelname)s: %(message)s'
 
     def __init__(self):
         self.logger = logging.getLogger("guten_logs")
         self.level = 'warning'
         self.setLevel(self.level)
 
-        self.log_file = self.setLogFile(log_file_path)
+        self.logFile = self.setLogFile(GutenbergLogs.logPath)
 
-        self.setFormat(log_format)
+        self.setFormat(GutenbergLogs.logFormat)
 
     def setLevel(self, level):
-        logging_level = levels[level]
-        self.logger.setLevel(logging_level)
+        loggingLevel = GutenbergLogs.levels[level]
+        self.logger.setLevel(loggingLevel)
         self.level = level
 
     def setLogFile(self, file):
-        log_file = logging.FileHandler(file)
-        self.logger.addHandler(log_file)
-        return log_file
+        logFile = logging.FileHandler(file)
+        self.logger.addHandler(logFile)
+        return logFile
 
     def setFormat(self, format):
         formatter = logging.Formatter(format)
-        self.log_file.setFormatter(formatter)
+        self.logFile.setFormatter(formatter)

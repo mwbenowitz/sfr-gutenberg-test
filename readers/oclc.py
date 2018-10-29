@@ -2,6 +2,7 @@ import logging
 import requests
 import marcalyx
 import re
+import sys
 from Levenshtein import distance, jaro_winkler
 from lxml import etree
 
@@ -11,7 +12,7 @@ from helpers.xml import xmlParser
 class oclcReader(xmlParser):
 
     config = GutenbergConfig()
-    wsKey = self.config.getConfigValue("api_keys", "wskey")
+    wsKey = config.getConfigValue("api_keys", "wskey")
 
     oclcSearch = "http://www.worldcat.org/webservices/catalog/search/worldcat/sru?query="
     oclcClassify = "http://classify.oclc.org/classify2/Classify?oclc="
@@ -27,25 +28,26 @@ class oclcReader(xmlParser):
 
     def getOCLCData(self, metadata):
         query = self._createQuery(metadata)
-        self.logger.debug(query)
+        self.logger.debug("Search Query: {}".format(query))
         oclcResp = requests.get(query)
         # TODO Handle error codes in a real way here
         oclcResp.raise_for_status
 
         # Load returned MARC records
         oclc = self._getGutenbergOCLC(oclcResp)
+        self.logger.debug(oclc)
         if oclc is False:
             return False
-        self.logger.debug("Loaded OCLC records")
         workID, workTitle, editionOCLCs, workAuthors = self._getEditions(oclc)
+        self.logger.debug("Loaded OCLC records for OWI {}".format(workID))
         if workID is None and editionOCLCs is None:
             return False
         self.logger.debug("Got Edition data from OCLC")
-        editionMARC, language = self._getEditionMARC(editionOCLCs)
+        editions = self._getEditionMARC(editionOCLCs)
         metadata["entities"].extend(workAuthors)
-        self._enhanceRecord(metadata, workID, workTitle, editionMARC, language)
+        self._enhanceRecord(metadata, workID, workTitle, editions)
 
-    def _enhanceRecord(self, metadata, workID, workTitle, editionMARC, language):
+    def _enhanceRecord(self, metadata, workID, workTitle, marcEditions):
         # Add Work level data
         # TODO Handle Variant Titles, right now each edition has their own
         metadata["title"] = workTitle
@@ -55,7 +57,7 @@ class oclcReader(xmlParser):
         })
         editions = metadata["editions"]
         tmpEditions = []
-        for edition in editionMARC:
+        for edition, language in marcEditions:
             oclc = edition["001"][0].value
             title = self._getSubfield(edition, "245", "a")
             subTitle = self._getSubfield(edition, "245", "b")
@@ -78,7 +80,7 @@ class oclcReader(xmlParser):
                 "year": pubYear,
                 "extent": extent,
                 "dimensions": dimensions,
-                "language": language,
+                "language": language[:2],
                 "notes": notes,
                 "isbn": isbns,
                 "issn": issns,
@@ -137,10 +139,12 @@ class oclcReader(xmlParser):
         if metadata["marc010"] is not None:
             query = "srw.dn+all+'{}''".format(metadata["marc010"])
         else:
+            query = 'srw.ti+all+"{}"'.format(metadata["title"])
             authors = self._getAuthors(metadata["entities"])
-            query = 'srw.ti+all+"{}"+and+srw.au+all+"{}"'.format(metadata["title"], authors)
-        query += "&wskey={}".format(wsKey)
-        return oclcSearch + query
+            if len(authors) > 0:
+                query += '+and+srw.au+all+"{}"'.format(authors)
+        query += "&wskey={}".format(oclcReader.wsKey)
+        return oclcReader.oclcSearch + query
 
     def _getAuthors(self, entities):
         authors = [x["name"] for x in entities if x["role"] == "creator"]
@@ -150,13 +154,13 @@ class oclcReader(xmlParser):
         results = etree.fromstring(oclcResp.text.encode("utf-8"))
         records = results.findall(".//record", namespaces=self.nsmap)
         gutenbergMARC = list(filter(lambda x: x, map(self._findGutenbergOCLC, records)))
-        if len(gutenbergMARC) == 1:
+        if len(gutenbergMARC) > 0:
             return gutenbergMARC[0]
         return False
 
     def _findGutenbergOCLC(self, record):
         marc = marcalyx.Record(record)
-        gutenbergRefs = [holding for holding in marc.holdings() if 'gutenberg' in holding.value()]
+        gutenbergRefs = [holding for holding in marc.holdings() if 'gutenberg' in str(holding.subfield("u")[0])]
         # TODO Does it ever make sense to have multiple records with gutenberg references?
         # If we have more than one, how do we determine which is the correct one
         if len(gutenbergRefs) > 0:
@@ -164,8 +168,9 @@ class oclcReader(xmlParser):
         return False
 
     def _getEditions(self, oclc):
-        classifyQuery = "{}&wskey={}".format(oclc, wsKey)
-        classifyQuery = oclcClassify + classifyQuery
+        classifyQuery = "{}&wskey={}".format(oclc, oclcReader.wsKey)
+        classifyQuery = oclcReader.oclcClassify + classifyQuery
+        self.logger.debug("Classify Query: {}".format(classifyQuery))
 
         classifyResp = requests.get(classifyQuery)
         classifyResp.raise_for_status
@@ -180,33 +185,34 @@ class oclcReader(xmlParser):
         editions = classifyXML.findall(".//edition", namespaces=self.nsmap)
         editionOCLCs = [(edition.attrib["oclc"], edition.attrib["language"]) for edition in editions]
 
-        authorRecs = classifyXML.finall(".//author", namespaces=self.nsmap)
+        authorRecs = classifyXML.findall(".//author", namespaces=self.nsmap)
         authors = list(map(self._parseAuthors, authorRecs))
-
-        return workID, oclcTitle, editionOCLCs, workAuthors
+        return workID, oclcTitle, editionOCLCs, authors
 
     def _parseAuthors(self, author):
         return {
             "name": author.text,
             "viaf": author.get("viaf"),
             "lcnaf": author.get("lc"),
-            "role": "author"
+            "role": "author",
+            "birthdate": None,
+            "deathdate": None
         }
 
     def _getEditionMARC(self, oclcs):
-        editionMARC, language = list(map(self._loadEdition, oclcs))
-        return editionMARC, language
+        return list(map(self._loadEdition, oclcs))
 
     def _loadEdition(self, oclcData):
         oclc, language = oclcData
-        catalogQuery = "{}?wskey={}".format(oclc, wsKey)
-        catalogQuery = oclcCatalog + catalogQuery
+        catalogQuery = "{}?wskey={}".format(oclc, oclcReader.wsKey)
+        catalogQuery = oclcReader.oclcCatalog + catalogQuery
+        self.logger.debug("Catalog Query: {}".format(catalogQuery))
         catalogResp = requests.get(catalogQuery)
         catalogResp.raise_for_status
 
         self.nsmap[None] = "http://classify.oclc.org"
         catalogXML = etree.fromstring(catalogResp.text.encode("utf-8"))
-        return marcalyx.Record(catalogXML), language
+        return (marcalyx.Record(catalogXML), language)
 
     def _getSubfield(self, marc, field, code):
         if len(marc.subfield(field, code)) < 1:

@@ -27,9 +27,9 @@ class postgresManager:
     def __init__(self):
         self.logger = logging.getLogger('guten_logs')
         self.conn = psycopg2.connect("dbname={} user={} password={}".format(
-            postgresOpts["db"],
-            postgresOpts["user"],
-            postgresOpts["password"]
+            postgresManager.postgresOpts["db"],
+            postgresManager.postgresOpts["user"],
+            postgresManager.postgresOpts["password"]
         ))
         self._checkDB()
 
@@ -49,6 +49,10 @@ class postgresManager:
     def execSelect(self, selectStmt, iden=None):
         self.cursor.execute(selectStmt.format(iden))
         return self.cursor.fetchall()
+
+    def execSelectOne(self, selectStmt, iden=None):
+        self.cursor.execute(selectStmt.format(iden))
+        return self.cursor.fetchone()
 
     def getRow(self, table, rowID):
         getQuery = "SELECT * FROM {} WHERE id={}".format(table, rowID)
@@ -133,8 +137,8 @@ class postgresManager:
             return value
 
     def keyReplace(self, key):
-        if key in replaceKeys:
-            return replaceKeys[key]
+        if key in postgresManager.replaceKeys:
+            return postgresManager.replaceKeys[key]
         return key
 
     def _checkDB(self):

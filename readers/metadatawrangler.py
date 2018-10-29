@@ -21,13 +21,13 @@ class MetadataWranglerReader(xmlParser):
         ])
 
     def getMWData(self, metadata, gutenbergID):
-        mwBookURL = mwURL + gutenbergID
+        mwBookURL = MetadataWranglerReader.mwURL + gutenbergID
         mwData = requests.get(mwBookURL)
         if mwData.status_code == 200:
             self.parseString(mwData.content)
             self.loadRecord(None, "entry")
             if self.current is None:
-                self.logger.info("No MW metadata avaiable for " + gutenbergID)
+                self.logger.info("No MW metadata avaiable for {}".format(gutenbergID))
                 return metadata
 
             # Get additional author data
@@ -55,15 +55,18 @@ class MetadataWranglerReader(xmlParser):
             return metadata
 
         self.current = author
+
         sortTag, sort = self.getField(("simplified", "sort_name"))
         if sort is not None:
             sort_name = sort.text.strip("., ")
             authorFields["sort_name"] = sort_name
+
         nameTag, name = self.getField((None, "name"))
         if name.text is not None:
             nameText = name.text.strip("., ")
         else:
             nameText = sort_name
+
         authorIDs = self.getRepeatingField("schema", "sameas")
         for authorID in authorIDs:
             idString = authorID.text
@@ -71,10 +74,12 @@ class MetadataWranglerReader(xmlParser):
                 authorFields["viaf"] = self._getControlNumber(idString)
             elif 'authorities/names' in idString:
                 authorFields["lcnaf"] = self._getControlNumber(idString)
+
         for i, entity in enumerate(metadata["entities"]):
             if entity["name"] in [sort_name, name]:
                 enhancedEntity = {**entity, **authorFields}
                 metadata["entities"][i] = enhancedEntity
+
         return metadata
 
     def _loadIDs(self, metadata):

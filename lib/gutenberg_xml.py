@@ -1,5 +1,6 @@
 import os
 import csv
+import logging
 from itertools import repeat
 from lxml import etree
 
@@ -9,6 +10,9 @@ class gutenbergXML(xmlParser):
 
     def __init__(self):
         super(gutenbergXML, self).__init__()
+
+        self.logger = logging.getLogger('guten_logs')
+
         # Necessary for lxml to properly parse namespaced elements and attribs
         self.loadNamespaces([
             ("base", "http://www.gutenberg.org/"),
@@ -56,13 +60,16 @@ class gutenbergXML(xmlParser):
         }
         self.ebookURLs = []
 
-    def load(self, rdf_file):
-        self.parse(rdf_file)
-        self.loadRecord("pgterms", "ebook")
+    def load(self, rdfFile):
+        self.logger.debug("Loading data from {}".format(rdfFile))
+        self.parse(rdfFile)
+        self.loadRecord("pgterms", "ebook") # This resets the XML file context
 
+        self.logger.debug("Creating record from {}".format(rdfFile))
         self._getMetadata()
         self.loadRecord("pgterms", "ebook")
 
+        self.logger.debug("Downloading Ebooks from Gutenberg for {}".format(rdfFile))
         self._getEbooks()
         self.loadRecord("pgterms", "ebook")
 
@@ -71,16 +78,22 @@ class gutenbergXML(xmlParser):
     # This loads metadata from the Gutenberg RDF files, inluding repeating
     # fields such as subjects and entities (authors, editors, etc)
     def _getMetadata(self):
+
+        self.logger.debug("Storing basic fields and edition data")
         fieldData = self.getFields(self.fields)
         self._storeFields(fieldData, self.metadata)
         self._createEditions()
 
+        self.logger.debug("Storing creator and other contributors")
         self._createEntityRecord(("dcterms", "creator"))
+        # This scans the RDF file for all possible marcrel codes
+        # and stores the resulting entity records
         for key, value in self.relCodes.items():
             self.loadRecord("pgterms", "ebook")
             self._createEntityRecord(("marcrel", key))
 
         self.loadRecord("pgterms", "ebook")
+        self.logger.debug("Storing subjects from Gutenberg record")
         self._getSubjects()
 
     def _storeFields(self, fields, obj):
@@ -130,6 +143,7 @@ class gutenbergXML(xmlParser):
             return False
 
         rel = entityTag
+        self.logger.debug("Creating entity for with relationship {}".format(rel))
         if entityTag in self.relCodes:
             rel = self.relCodes[entityTag]
         entityDict["role"] = rel
@@ -148,6 +162,7 @@ class gutenbergXML(xmlParser):
         if wikipedia is not None:
             pageAttrib = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
             pageURL = self.getAttrib(wikipedia, pageAttrib)
+            self.logger.debug("Setting wikipedia link {} for entity".format(pageURL))
             entityDict["wikipedia"] = pageURL
         self.metadata["entities"].append(entityDict)
 
@@ -156,17 +171,22 @@ class gutenbergXML(xmlParser):
         subjects = self.getRepeatingField("dcterms", "subject")
         self.metadata["subjects"] = list(map(self._loadSubject, subjects))
 
+    # This parses the RDF subject areas and stores them in our metadata dict
     def _loadSubject(self, subject):
         self.current = subject
         memberTag, member = self.getField(("dcam", "memberOf"))
         memberAttrib = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
         subjectMember = self.getAttrib(member, memberAttrib)
         subjectTag, subjectText = self.getField(("rdf", "value"))
+        self.logger.debug("Storing subject {}".format(subjectText.text))
         return {
             "source": subjectMember,
             "subject": subjectText.text
         }
 
+    # This creates a stub editions/instances section of the metadata dict
+    # It populates the list with a single edition -- the Gutenberg edition that
+    # forms the basis of this record
     def _createEditions(self):
         self.metadata["editions"] = []
         gutenbergEdition = {
@@ -182,6 +202,8 @@ class gutenbergXML(xmlParser):
             "issn": [],
             "oclc": []
         }
+        # Having stored this information on the edition, we pop these fields
+        # off of the main work record (part of FRBR-ization)
         self.metadata["editions"].append(gutenbergEdition)
         self.metadata.pop("publisher", None)
         self.metadata.pop("issued", None)
