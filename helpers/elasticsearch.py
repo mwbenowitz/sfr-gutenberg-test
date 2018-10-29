@@ -2,6 +2,7 @@ from elasticsearch import Elasticsearch
 from elasticsearch_dsl import InnerDoc, DocType, Text, Keyword, Nested, Date, Integer
 from elasticsearch_dsl.connections import connections
 from helpers.postgres import postgresManager
+from helpers.config import GutenbergConfig
 
 class ElasticWriter(postgresManager):
     def __init__(self):

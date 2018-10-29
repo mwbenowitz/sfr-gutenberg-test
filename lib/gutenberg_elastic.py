@@ -4,7 +4,7 @@ class GutenbergES():
 
     esWriter = ElasticWriter()
 
-    getWork = "SELECT * FROM works WHERE work_id={};"
+    getWork = "SELECT * FROM works WHERE id={};"
     getInstances = "SELECT * FROM instances WHERE work_id={}"
 
     getItems = "SELECT * FROM items WHERE instance_id={}"
@@ -23,50 +23,79 @@ class GutenbergES():
         WHERE w.id={}
     """
 
+    getWorkIDs = """
+        SELECT * FROM identifiers i
+        JOIN work_identifiers il ON il.identifier_id = i.id
+        JOIN works t ON t.id = il.work_id
+        WHERE t.id = {}
+    """
+
+    getInstanceIDs = """
+        SELECT * FROM identifiers i
+        JOIN instance_identifiers il ON il.identifier_id = i.id
+        JOIN instances t ON t.id = il.instance_id
+        WHERE t.id = {}
+    """
+
     workFields = ["title", "uuid", "rights_stmt", "date_created", "date_updated", "language"]
     instanceFields = ["title", "pub_date", "pub_place", "publisher", "language"]
     itemFields = ["url", "epub_path", "source", "size", "date_modified"]
     subjectFields = ["authority", "subject"]
     entityFields = ["name", "sort_name", "aliases", "viaf", "lcnaf", "wikipedia", "birth", "death", "role"]
+    identifierFields = ["type", "identifier"]
 
     def __init__(self):
         self.workID = None
 
     def storeES(self, workID):
-        work = esWriter.execSelect(getWork, workID)
+        work = GutenbergES.esWriter.execSelectOne(GutenbergES.getWork, workID)
 
-        fieldPairs = esWriter.convertToFieldTuples(work, workFields)
+        fieldPairs = GutenbergES.esWriter.convertToFieldTuples(work, GutenbergES.workFields)
         esWork = Work()
         esWork.setFields(fieldPairs)
 
         workID = work["id"]
-        instances = esWriter.execSelect(getInstances, workID)
+        instances = GutenbergES.esWriter.execSelect(GutenbergES.getInstances, workID)
         for instance in instances:
-            instancePairs = esWriter.convertToFieldTuples(instance, instanceFields)
+            instancePairs = GutenbergES.esWriter.convertToFieldTuples(instance, GutenbergES.instanceFields)
             esInstance = Instance()
             esInstance.setFields(instancePairs)
             instanceID = instance["id"]
-            items = esWriter.execSelect(getItems, instanceID)
+            items = GutenbergES.esWriter.execSelect(GutenbergES.getItems, instanceID)
             for item in items:
-                itemPairs = esWriter.convertToFieldTuples(item, itemFields)
+                itemPairs = GutenbergES.esWriter.convertToFieldTuples(item, GutenbergES.itemFields)
                 esItem = Item()
                 esItem.setFields(itemPairs)
                 esInstance.items.append(esItem)
 
+            identifiers = GutenbergES.esWriter.execSelect(GutenbergES.getInstanceIDs, instanceID)
+            for iden in identifiers:
+                idenPairs = GutenbergES.esWriter.convertToFieldTuples(iden, GutenbergES.identifierFields)
+                esIden = Identifier()
+                esIden.setFields(idenPairs)
+                esInstance.ids.append(esIden)
+
             esWork.instances.append(esInstance)
 
-        entities = esWriter.execSelect(getEntities, workID)
+        entities = GutenbergES.esWriter.execSelect(GutenbergES.getEntities, workID)
         for entity in entities:
-            entityPairs = esWriter.convertToFieldTuples(entity, entityFields)
+            entityPairs = GutenbergES.esWriter.convertToFieldTuples(entity, GutenbergES.entityFields)
             esEntity = Entity()
             esEntity.setFields(entityPairs)
             esWork.entities.append(esEntity)
 
-        subjects = esWriter.execSelect(getSubjects, workID)
+        subjects = GutenbergES.esWriter.execSelect(GutenbergES.getSubjects, workID)
         for subject in subjects:
-            subjectPairs = esWriter.convertToFieldTuples(subject, subjectFields)
+            subjectPairs = GutenbergES.esWriter.convertToFieldTuples(subject, GutenbergES.subjectFields)
             esSubject = Subject()
             esSubject.setFields(subjectPairs)
             esWork.subjects.append(esSubject)
+
+        identifiers = GutenbergES.esWriter.execSelect(GutenbergES.getWorkIDs, workID)
+        for iden in identifiers:
+            idenPairs = GutenbergES.esWriter.convertToFieldTuples(iden, GutenbergES.identifierFields)
+            esIden = Identifier()
+            esIden.setFields(idenPairs)
+            esWork.ids.append(esIden)
 
         esWork.save()
