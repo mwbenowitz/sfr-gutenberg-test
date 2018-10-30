@@ -14,7 +14,7 @@ class oclcReader(xmlParser):
     config = GutenbergConfig()
     wsKey = config.getConfigValue("api_keys", "wskey")
 
-    oclcSearch = "http://www.worldcat.org/webservices/catalog/search/worldcat/sru?query="
+    oclcSearch = 'http://www.worldcat.org/webservices/catalog/search/worldcat/sru?query=srw.kw+all+"gutenberg"+and+'
     oclcClassify = "http://classify.oclc.org/classify2/Classify?oclc="
     oclcCatalog = "http://www.worldcat.org/webservices/catalog/content/"
 
@@ -57,36 +57,49 @@ class oclcReader(xmlParser):
         })
         editions = metadata["editions"]
         tmpEditions = []
+        pubYear = None
         for edition, language in marcEditions:
-            oclc = edition["001"][0].value
-            title = self._getSubfield(edition, "245", "a")
-            subTitle = self._getSubfield(edition, "245", "b")
-            if subTitle is not None:
-                title = "{} {}".format(title, subTitle)
-            publisher = self._getSubfield(edition, "260", "b")
-            pubPlace = self._getSubfield(edition, "260", "a")
-            pubYear = re.search(r"([0-9]{4})", self._getSubfield(edition, "260", "c")).group(0)
-            extent = self._getSubfield(edition, "300", "a")
-            dimensions = self._getSubfield(edition, "300", "c")
+            try:
+                oclc = edition["001"][0].value
+                title = self._getSubfield(edition, "245", "a")
+                subTitle = self._getSubfield(edition, "245", "b")
+                if subTitle is not None:
+                    title = "{} {}".format(title, subTitle)
+                publisher = self._getSubfield(edition, "260", "b")
+                pubPlace = self._getSubfield(edition, "260", "a")
+                dateField = self._getSubfield(edition, "260", "c")
+                if dateField is not None:
+                    pubDate = re.search(r"([0-9]{4})", dateField)
+                    if pubDate is not None:
+                        pubYear = pubDate.group(0)
+                extent = self._getSubfield(edition, "300", "a")
+                dimensions = self._getSubfield(edition, "300", "c")
 
-            notes = self._getSubfield(edition, "500", "a")
+                notes = self._getSubfield(edition, "500", "a")
 
-            isbns = edition.isbns()
-            issns = edition.issns()
-            newEdition = {
-                "title": title,
-                "publisher": publisher,
-                "pubPlace": pubPlace,
-                "year": pubYear,
-                "extent": extent,
-                "dimensions": dimensions,
-                "language": language[:2],
-                "notes": notes,
-                "isbn": isbns,
-                "issn": issns,
-                "oclc": [oclc]
-            }
-            editions = self._mergeEdition(editions, newEdition)
+                isbns = edition.isbns()
+                issns = edition.issns()
+                newEdition = {
+                    "title": title,
+                    "publisher": publisher,
+                    "pubPlace": pubPlace,
+                    "year": pubYear,
+                    "extent": extent,
+                    "dimensions": dimensions,
+                    "language": language[:2],
+                    "notes": notes,
+                    "isbn": isbns,
+                    "issn": issns,
+                    "oclc": [oclc]
+                }
+                editions = self._mergeEdition(editions, newEdition)
+            except TypeError as err:
+                self.logger.warning("Could not parse XML for edition in OWI {}".format(workID))
+                self.logger.debug(err)
+            except AttributeError as err:
+                self.logger.error("Failure to parse XML data. Bug in the MARC parser!")
+                self.logger.debug(err)
+                sys.exit(5)
         metadata["editions"] = editions
         return metadata
 
@@ -151,7 +164,13 @@ class oclcReader(xmlParser):
         return ", ".join(authors)
 
     def _getGutenbergOCLC(self, oclcResp):
-        results = etree.fromstring(oclcResp.text.encode("utf-8"))
+        try:
+            results = etree.fromstring(oclcResp.text.encode("utf-8"))
+        except etree.XMLSyntaxError as err:
+            self.logger.warning("Could not Read OCLC XML Respone")
+            self.logger.debug(err)
+            return False
+        self.nsmap[None] = "http://www.loc.gov/MARC21/slim"
         records = results.findall(".//record", namespaces=self.nsmap)
         gutenbergMARC = list(filter(lambda x: x, map(self._findGutenbergOCLC, records)))
         if len(gutenbergMARC) > 0:
@@ -163,6 +182,7 @@ class oclcReader(xmlParser):
         gutenbergRefs = [holding for holding in marc.holdings() if 'gutenberg' in str(holding.subfield("u")[0])]
         # TODO Does it ever make sense to have multiple records with gutenberg references?
         # If we have more than one, how do we determine which is the correct one
+
         if len(gutenbergRefs) > 0:
             return marc["001"][0].value
         return False
