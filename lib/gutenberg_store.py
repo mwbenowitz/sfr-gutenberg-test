@@ -169,7 +169,10 @@ class GutenbergDB(postgresManager):
         newEditionIDs = self._relatedIDs("instance", editionID, newIDs)
 
         # Add Gutenberg items
-        if 'gutenberg' in edition["publisher"].lower():
+        if (
+            edition["publisher"] is not None and
+            'gutenberg' in edition["publisher"].lower()
+        ):
             itemIDs = self._createItems(editionID, epubs)
 
         return editionID

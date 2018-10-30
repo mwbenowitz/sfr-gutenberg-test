@@ -21,7 +21,7 @@ class MetadataWranglerReader(xmlParser):
         ])
 
     def getMWData(self, metadata, gutenbergID):
-        mwBookURL = MetadataWranglerReader.mwURL + gutenbergID
+        mwBookURL = "{}{}".format(MetadataWranglerReader.mwURL, gutenbergID)
         mwData = requests.get(mwBookURL)
         if mwData.status_code == 200:
             self.parseString(mwData.content)

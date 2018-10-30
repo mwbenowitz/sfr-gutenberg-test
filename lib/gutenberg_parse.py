@@ -41,7 +41,9 @@ class GutenbergBib:
     def readDir(self):
         self.logger.info("Parsing all Gutenberg books")
 
-        list(map(self.readBib, os.listdir(self.epubDir)))
+        #list(map(self.readBib, os.listdir(self.epubDir)))
+        list(map(self.readBib, [str(i) for i in range(2595, 2602)]))
+        #list(map(self.readBib, ["2518"]))
         self.dbConnector.closeAll()
 
 
@@ -56,7 +58,9 @@ class GutenbergBib:
             return False
 
         # Enhance the data we got from Gutenberg with data from MW
-        self.enhanceBib()
+        enhanceStatus = self.enhanceBib()
+        if enhanceStatus is not True:
+            return ehanceStatus
 
         # Store the book in the database
         res = self.dbConnector.insert_record(self.metadata, self.ebookURLs)
@@ -72,8 +76,8 @@ class GutenbergBib:
 
     # This provides the main processing for each work and loads metadata from it
     def loadBib(self, bookID):
-        rdfDir = self.epubDir + bookID
-        if 'DELETE' in bookID:
+        rdfDir = "{}{}".format(self.epubDir, bookID)
+        if 'DELETE' in str(bookID):
             # TODO Execute the delete request in the psql/es
             self.logger.warning("BOOK TO BE DELETED")
             return False
@@ -95,6 +99,10 @@ class GutenbergBib:
 
         self.logger.info("Loading Metadata Wrangler Data")
         self.metadata = self.mwReader.getMWData(self.metadata, self.currentBib)
-
+        if "ids" not in self.metadata:
+            self.logger.warning("BAD RECORD. CHECK SOURCE GUTENBERG FILE")
+            return False
         self.logger.info("Loading OCLC Data")
         self.oclcReader.getOCLCData(self.metadata)
+
+        return True
