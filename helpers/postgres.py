@@ -74,7 +74,8 @@ class postgresManager:
     def updateRow(self, table, rowID, columns, values):
         setStmts = []
         for i, col in enumerate(columns):
-            setStmts.append("{}='{}'".format(col, values[i]))
+            escapedValue = self._escapeQuotes(values[i])
+            setStmts.append("{}='{}'".format(col, escapedValue))
         setStmt = ", ".join(setStmts)
 
         updateQuery = """
@@ -83,10 +84,28 @@ class postgresManager:
 
         self.cursor.execute(updateQuery)
 
+    def checkForRowWithRel(self, table, values, relTable, relID):
+        whereStmts = []
+        for key, value in values.items():
+            if value is None:
+                continue
+            escapedValue = self._escapeQuotes(value)
+            whereQuery = "t.{}='{}'".format(self.keyReplace(key), escapedValue)
+            whereStmts.append(whereQuery)
+        whereStmts.append("r.id={}".format(relID))
+        query = """
+            SELECT t.id FROM {} t JOIN {}s r ON t.{}_id = r.id WHERE {}
+        """.format(table, relTable, relTable, " AND ".join(whereStmts))
+        self.cursor.execute(query)
+        if self.cursor.rowcount > 0:
+            return self.cursor.fetchone()["id"]
+        return None
 
     def checkForRow(self, table, values):
         whereStmts = []
         for key, value in values.items():
+            if value is None:
+                continue
             escapedValue = self._escapeQuotes(value)
             whereQuery = "{}='{}'".format(self.keyReplace(key), escapedValue)
             whereStmts.append(whereQuery)
@@ -154,7 +173,7 @@ class postgresManager:
                 CREATE TABLE works (
                     id              SERIAL PRIMARY KEY,
                     uuid            UUID NOT NULL,
-                    title           VARCHAR(255) NOT NULL,
+                    title           TEXT NOT NULL,
                     rights_stmt     TEXT NULL,
                     rights_url      VARCHAR(125) NULL,
                     rights_source   VARCHAR(125) NULL,

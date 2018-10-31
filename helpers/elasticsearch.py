@@ -90,5 +90,9 @@ class Work(DocType, sfrDoc):
     subjects = Nested(Subject)
     ids = Nested(Identifier)
 
+    def save(self, **kwargs):
+        self.meta.id = kwargs["id"]
+        return super(Work, self).save(**kwargs)
+
     class Index():
         name="sfr"

@@ -41,10 +41,9 @@ class GutenbergBib:
     def readDir(self):
         self.logger.info("Parsing all Gutenberg books")
 
-        #list(map(self.readBib, os.listdir(self.epubDir)))
-        list(map(self.readBib, [str(i) for i in range(2595, 2602)]))
-        #list(map(self.readBib, ["2518"]))
+        list(map(self.readBib, os.listdir(self.epubDir)))
         self.dbConnector.closeAll()
+        self.esConnector.closeConn()
 
 
     def readBib(self, bookID):
@@ -70,8 +69,12 @@ class GutenbergBib:
         self.logger.debug("{} RECORD {}".format(res["status"], res["work"]))
         self.reset()
 
-        self.esConnector.storeES(res["work"])
+        if self.test is True:
+            return True
 
+        if res["status"] == "existing":
+            self.esConnector.dropES(res["work"])
+        self.esConnector.storeES(res["work"])
         return True
 
     # This provides the main processing for each work and loads metadata from it
@@ -103,6 +106,6 @@ class GutenbergBib:
             self.logger.warning("BAD RECORD. CHECK SOURCE GUTENBERG FILE")
             return False
         self.logger.info("Loading OCLC Data")
-        self.oclcReader.getOCLCData(self.metadata)
+        self.oclcReader.getOCLCData(self.metadata, self.currentBib)
 
         return True

@@ -47,7 +47,12 @@ class GutenbergES():
     def __init__(self):
         self.workID = None
 
+    def dropES(self, workID):
+        work = Work.get(id=workID)
+        work.delete()
+
     def storeES(self, workID):
+        GutenbergES.esWriter.getCursor()
         work = GutenbergES.esWriter.execSelectOne(GutenbergES.getWork, workID)
 
         fieldPairs = GutenbergES.esWriter.convertToFieldTuples(work, GutenbergES.workFields)
@@ -98,4 +103,7 @@ class GutenbergES():
             esIden.setFields(idenPairs)
             esWork.ids.append(esIden)
 
-        esWork.save()
+        esWork.save(id=workID)
+
+    def closeConn(self):
+        GutenbergES.esWriter.closeAll()

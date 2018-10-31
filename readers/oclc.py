@@ -26,7 +26,12 @@ class oclcReader(xmlParser):
             (None, "http://www.loc.gov/MARC21/slim")
         ])
 
-    def getOCLCData(self, metadata):
+        self.bookID = None
+
+    def getOCLCData(self, metadata, bookID):
+
+        self.bookID = bookID
+
         query = self._createQuery(metadata)
         self.logger.debug("Search Query: {}".format(query))
         oclcResp = requests.get(query)
@@ -179,10 +184,16 @@ class oclcReader(xmlParser):
 
     def _findGutenbergOCLC(self, record):
         marc = marcalyx.Record(record)
-        gutenbergRefs = [holding for holding in marc.holdings() if 'gutenberg' in str(holding.subfield("u")[0])]
+        try:
+            urls = [s.value for s in marc.subfield('856', 'u')]
+            gutenbergRefs = [holding for holding in urls if 'gutenberg' in holding]
+        except IndexError as err:
+            self.logger.warning("Could not parse 856 fields")
+            self.logger.debug(err)
+            self.logger.debug(marc.holdings())
         # TODO Does it ever make sense to have multiple records with gutenberg references?
         # If we have more than one, how do we determine which is the correct one
-
+        gutenbergRefs = [ref for ref in gutenbergRefs if self.bookID in ref]
         if len(gutenbergRefs) > 0:
             return marc["001"][0].value
         return False
@@ -202,12 +213,40 @@ class oclcReader(xmlParser):
             return None, None, None, None
         workID = classifyXML.find(".//work", namespaces=self.nsmap).attrib["owi"]
         oclcTitle = classifyXML.find(".//work", namespaces=self.nsmap).attrib["title"]
-        editions = classifyXML.findall(".//edition", namespaces=self.nsmap)
-        editionOCLCs = [(edition.attrib["oclc"], edition.attrib["language"]) for edition in editions]
 
         authorRecs = classifyXML.findall(".//author", namespaces=self.nsmap)
         authors = list(map(self._parseAuthors, authorRecs))
-        return workID, oclcTitle, editionOCLCs, authors
+
+        editionOCLCs = self._getEditionOCLC(classifyXML)
+
+        # Look for additional pages of Edition data
+        navigation = classifyXML.find(".//navigation", namespaces=self.nsmap)
+        if navigation is not None:
+            pages = navigation.findall(".//page", namespaces=self.nsmap)
+            for page in pages:
+                pageNumber = page.find(".//label", namespaces=self.nsmap).text
+                pageLink = page.find(".//link", namespaces=self.nsmap)
+                if int(pageNumber) > 1 and pageLink is not None:
+                    editionOCLCs.extend(self._getMoreEditions(pageLink.text, oclc))
+
+
+        return workID, oclcTitle, list(set(editionOCLCs)), authors
+
+    def _getMoreEditions(self, page, oclc):
+        self.logger.debug("Loading more editions from Page #{}".format(page))
+        classifyQuery = "{}&startRec={}&wskey={}".format(oclc, page, oclcReader.wsKey)
+        classifyQuery = oclcReader.oclcClassify + classifyQuery
+
+        classifyResp = requests.get(classifyQuery)
+        classifyResp.raise_for_status
+
+        classifyXML = etree.fromstring(classifyResp.text.encode("utf-8"))
+
+        return self._getEditionOCLC(classifyXML)
+
+    def _getEditionOCLC(self, xml):
+        editions = xml.findall(".//edition", namespaces=self.nsmap)
+        return [(edition.attrib["oclc"], edition.attrib["language"]) for edition in editions]
 
     def _parseAuthors(self, author):
         return {
@@ -220,7 +259,7 @@ class oclcReader(xmlParser):
         }
 
     def _getEditionMARC(self, oclcs):
-        return list(map(self._loadEdition, oclcs))
+        return list(filter(lambda x: x, map(self._loadEdition, oclcs)))
 
     def _loadEdition(self, oclcData):
         oclc, language = oclcData
@@ -232,7 +271,12 @@ class oclcReader(xmlParser):
 
         self.nsmap[None] = "http://classify.oclc.org"
         catalogXML = etree.fromstring(catalogResp.text.encode("utf-8"))
-        return (marcalyx.Record(catalogXML), language)
+        try:
+            return (marcalyx.Record(catalogXML), language)
+        except IndexError as err:
+            self.logger.error("marcalyx failed to parse Catalog entry OCLC# {}".format(oclc))
+            self.logger.debug(err)
+            return False
 
     def _getSubfield(self, marc, field, code):
         if len(marc.subfield(field, code)) < 1:
