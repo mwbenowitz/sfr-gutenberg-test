@@ -13,7 +13,7 @@ class GutenbergDB(postgresManager):
 
     epubStore = "files/epubs/"
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         super(GutenbergDB, self).__init__()
         self.logger = logging.getLogger('guten_logs')
 
@@ -27,11 +27,12 @@ class GutenbergDB(postgresManager):
     # 5) Add date_created and date_modified fields to all tables
     def insert_record(self, metadata, epubs):
         self.logger.info("Storing new Gutenberg File")
+        self.logger.debug(metadata)
+        status = "existing"
         workID, newIDs = self._checkIDs("work", metadata["ids"])
-        if workID is not None:
-            return {"status": "existing", "result": 0, "work": workID}
-
-        workID = self._createWork(metadata, newIDs)
+        if workID is None:
+            status = "new"
+            workID, status = self._createWork(metadata, newIDs)
 
         editionIDs = self._createInstances(metadata["editions"], workID, epubs)
 
@@ -41,7 +42,7 @@ class GutenbergDB(postgresManager):
 
         self.commitOps()
 
-        return {"status": "new", "result": 0, "work": workID}
+        return {"status": status, "result": 0, "work": workID}
 
     def _checkIDs(self, table, ids):
         idStmt = self.generateInsert("identifiers", ["type", "identifier"])
@@ -79,7 +80,7 @@ class GutenbergDB(postgresManager):
                 if entityID is not None:
                     scores[entityID] += 1
         # Use jaro_winkler algorithim and lifespan to get better matches
-        entityRec = self.queryJaroWinkler("entities", "name", entity["name"], 0.9)
+        entityRec = self.queryJaroWinkler("entities", "name", entity["name"], 0.8)
         if entityRec:
             scores[entityRec["id"]] += 1
             if self._matchLifespan(entity, entityRec) is True:
@@ -107,12 +108,12 @@ class GutenbergDB(postgresManager):
     def _createWork(self, metadata, newIDs):
         # TODO
         # Generate namespaced UUID
-        workRec = self.queryJaroWinkler("works", "title", metadata["title"], 0.9)
+        workRec = self.queryJaroWinkler("works", "title", metadata["title"], 0.98)
         if workRec:
             entityID = None
             entMatches = list(filter(lambda x: x, map(self._matchEntity, metadata["entities"])))
             if len(entMatches) > 0:
-                return workRec["id"]
+                return workRec["id"], "existing"
 
         workFields = ["uuid", "title", "rights_stmt", "language"]
         workValues = [
@@ -125,7 +126,7 @@ class GutenbergDB(postgresManager):
         worksStmt = self.generateInsert("works", workFields)
         workID = self.insertRow(worksStmt, workValues)
         linkedIDs = self._relatedIDs("work", workID, newIDs)
-        return workID
+        return workID, "new"
 
     def _createInstances(self, editions, workID, epubs):
         # TODO
@@ -153,17 +154,25 @@ class GutenbergDB(postgresManager):
         editionID, newISSNids = self._checkIDs("instance", issns)
         oclcs = self._generateIdDict("oclc", edition["oclc"])
         editionID, newOCLCids = self._checkIDs("instance", oclcs)
-        editionValues = [
-            edition["title"],
-            edition["year"],
-            edition["pubPlace"],
-            edition["publisher"],
-            edition["extent"],
-            edition["notes"],
-            edition["language"],
-            workID
-        ]
-        editionID = self.insertRow(editionStmt, editionValues)
+
+        if editionID is None:
+            editionID = self.checkForRowWithRel("instances", {
+                    "pub_date": edition["year"],
+                    "pub_place": edition["pubPlace"],
+                    "publisher": edition["publisher"]
+            }, "work", workID)
+            if editionID is None:
+                editionValues = [
+                    edition["title"],
+                    edition["year"],
+                    edition["pubPlace"],
+                    edition["publisher"],
+                    edition["extent"],
+                    edition["notes"],
+                    edition["language"],
+                    workID
+                ]
+                editionID = self.insertRow(editionStmt, editionValues)
 
         newIDs = newISBNids + newISSNids + newOCLCids
         newEditionIDs = self._relatedIDs("instance", editionID, newIDs)
@@ -273,15 +282,16 @@ class GutenbergDB(postgresManager):
                 entity["birthdate"],
                 entity["deathdate"],
                 entity["wikipedia"],
-                entity["alias"]
+                entity["aliases"]
             ]
             entityID = self.insertRow(entityStmt, entityValues)
-
-            self._createEntityRel(workID, entityID, entity["role"], relStmt)
         else:
             columns, values = self._generateUpdate(entity, "entities", entityID)
             if len(columns) > 0:
                 self.updateRow("entities", entityID, columns, values)
+
+        self._createEntityRel(workID, entityID, entity["role"], relStmt)
+
 
         return entityID
 

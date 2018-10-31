@@ -21,15 +21,22 @@ class postgresManager:
         "alias": "aliases"
     }
 
-    config = GutenbergConfig()
-    postgresOpts = config.getConfigSection("postgresql")
 
-    def __init__(self):
+
+    def __init__(self, test=False):
+
+        psqlConfig = "postgresql"
+        config = GutenbergConfig()
+        if test is True:
+            psqlConfig = "postgresql_TEST"
+        postgresConfig = config.getConfigSection(psqlConfig)
+
         self.logger = logging.getLogger('guten_logs')
+
         self.conn = psycopg2.connect("dbname={} user={} password={}".format(
-            postgresManager.postgresOpts["db"],
-            postgresManager.postgresOpts["user"],
-            postgresManager.postgresOpts["password"]
+            postgresConfig["db"],
+            postgresConfig["user"],
+            postgresConfig["password"]
         ))
         self._checkDB()
 

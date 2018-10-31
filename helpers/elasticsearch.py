@@ -1,15 +1,18 @@
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import InnerDoc, DocType, Text, Keyword, Nested, Date, Integer
+from elasticsearch_dsl import InnerDoc, DocType, Text, Keyword, Nested, Date, Integer, Search
 from elasticsearch_dsl.connections import connections
 from helpers.postgres import postgresManager
 from helpers.config import GutenbergConfig
 
 class ElasticWriter(postgresManager):
-    def __init__(self):
+    def __init__(self, test=False):
         super(ElasticWriter, self).__init__()
 
         self.config = GutenbergConfig()
-        self.esOpts = self.config.getConfigSection("elasticsearch")
+        esConfig = "elasticsearch"
+        if test is True:
+            esConfig = "elasticsearch_TEST"
+        self.esOpts = self.config.getConfigSection(esConfig)
 
         connections.create_connection(
             hosts=self.esOpts["host"],

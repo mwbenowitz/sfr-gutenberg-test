@@ -12,7 +12,7 @@ from readers.oclc import oclcReader
 
 class GutenbergBib:
 
-    def __init__(self, catalogDir):
+    def __init__(self, catalogDir, test=False):
         self.logger = logging.getLogger('guten_logs')
 
         # This is where we read the RDF files from
@@ -27,8 +27,10 @@ class GutenbergBib:
         self.mwReader = MetadataWranglerReader()
         self.oclcReader = oclcReader()
 
-        self.dbConnector = GutenbergDB()
+        self.dbConnector = GutenbergDB(test=test)
         self.esConnector = GutenbergES()
+
+        self.test = test
 
     # This is called after each work is processed to prep for the next
     def reset(self):
